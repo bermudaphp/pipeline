@@ -1,0 +1,13 @@
+{
+  "name": "lobster-php/pipeline",
+  "license": "MIT",
+  "autoload": {
+    "psr-4": {
+      "Lobster\\Pipeline\\": "src/"
+    }
+  },
+  "require": {
+    "php": ">= 7.4",
+    "psr/http-server-middleware": "^1.0.1"
+  }
+}
