@@ -53,7 +53,8 @@ final class Pipeline implements Contracts\Pipeline
      * @param ServerRequestInterface $request
      * @return ResponseInterface
      */
-    public function handle(ServerRequestInterface $request): ResponseInterface {
+    public function handle(ServerRequestInterface $request): ResponseInterface 
+    {
         return $this->process($request, $this->handler);
     }
 }
