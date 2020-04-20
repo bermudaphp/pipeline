@@ -6,6 +6,7 @@ namespace Lobster\Pipeline;
 
 use Psr\Http\Server\MiddlewareInterface;
 
+
 /**
  * Class Queue
  * @package Lobster\Pipeline
@@ -26,7 +27,7 @@ final class Queue
     }
 
     /**
-     * @return MiddlewareInterface
+     * @return MiddlewareInterface|null
      */
     public function dequeue() :? MiddlewareInterface
     {
