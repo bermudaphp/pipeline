@@ -1,7 +1,7 @@
 <?php
 
 
-namespace Lobster\Pipeline;
+namespace Bermuda\Pipeline;
 
 
 use Psr\Http\Server\MiddlewareInterface;
@@ -10,18 +10,17 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 /**
  * Class PipelineFactory
- * @package Lobster\Pipeline
+ * @package Bermuda\Pipeline
  */
-class PipelineFactory implements Contracts\PipelineFactory
+class PipelineFactory implements PipelineFactoryInterface
 {
     /**
      * @param MiddlewareInterface[] $middleware
      * @param RequestHandlerInterface|null $handler
-     * @return Pipeline
+     * @return PipelineInterface
      */
-    public function __invoke(iterable $middleware = [], RequestHandlerInterface $handler = null) : Pipeline
+    public function make(iterable $middleware = [], RequestHandlerInterface $handler = null) : PipelineInterface
     {
-
         $pipeline = new Pipeline($handler);
 
         foreach ($middleware as $item)
