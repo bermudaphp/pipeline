@@ -1,7 +1,7 @@
 <?php
 
 
-namespace Lobster\Pipeline;
+namespace Bermuda\Pipeline;
 
 
 use Psr\Http\Message\ResponseInterface;
@@ -12,9 +12,9 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 /**
  * Class Pipeline
- * @package Lobster\Pipeline
+ * @package Bermuda\Pipeline
  */
-final class Pipeline implements Contracts\Pipeline
+final class Pipeline implements PipelineInterface
 {
     private Queue $queue;
     private RequestHandlerInterface $handler;
@@ -30,10 +30,10 @@ final class Pipeline implements Contracts\Pipeline
     }
 
     /**
-     * @param MiddlewareInterface ...$middleware
+     * @param MiddlewareInterface $middleware
      * @return Pipeline
      */
-    public function pipe(MiddlewareInterface $middleware): Pipeline
+    public function pipe(MiddlewareInterface $middleware): PipelineInterface
     {
         $this->queue->enqueue($middleware);
         return $this;
