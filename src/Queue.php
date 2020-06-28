@@ -1,7 +1,7 @@
 <?php
 
 
-namespace Lobster\Pipeline;
+namespace Bermuda\Pipeline;
 
 
 use Psr\Http\Server\MiddlewareInterface;
@@ -9,7 +9,7 @@ use Psr\Http\Server\MiddlewareInterface;
 
 /**
  * Class Queue
- * @package Lobster\Pipeline
+ * @package Bermuda\Pipeline
  */
 final class Queue
 {
