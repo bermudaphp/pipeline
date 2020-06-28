@@ -1,7 +1,7 @@
 <?php
 
 
-namespace Lobster\Pipeline;
+namespace Bermuda\Pipeline;
 
 
 use Psr\Http\Message\ResponseInterface;
@@ -11,18 +11,13 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 /**
  * Class Next
- * @package Lobster\Pipeline
+ * @package Bermuda\Pipeline
  */
 final class Next implements RequestHandlerInterface
 {
     private Queue $queue;
     private RequestHandlerInterface $handler;
 
-    /**
-     * Next constructor.
-     * @param Queue $queue
-     * @param RequestHandlerInterface $handler
-     */
     public function __construct(Queue $queue, RequestHandlerInterface $handler)
     {
         $this->queue = clone $queue;
@@ -35,9 +30,9 @@ final class Next implements RequestHandlerInterface
      */
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
-        if (($m = $this->queue->dequeue()) != null)
+        if (($middleware = $this->queue->dequeue()) != null)
         {
-            return $m->process($request, $this);
+            return $middleware->process($request, $this);
         }
 
         return $this->handler->handle($request);
