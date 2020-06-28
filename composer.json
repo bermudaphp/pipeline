@@ -1,9 +1,9 @@
 {
-  "name": "lobster-php/pipeline",
+  "name": "bermudaphp/pipeline",
   "license": "MIT",
   "autoload": {
     "psr-4": {
-      "Lobster\\Pipeline\\": "src/"
+      "Bermuda\\Pipeline\\": "src/"
     }
   },
   "require": {
