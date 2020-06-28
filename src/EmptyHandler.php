@@ -1,7 +1,7 @@
 <?php
 
 
-namespace Lobster\Pipeline;
+namespace Bermuda\Pipeline;
 
 
 use Psr\Http\Message\ResponseInterface;
@@ -11,7 +11,7 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 /**
  * Class EmptyHandler
- * @package Lobster\Pipeline
+ * @package Bermuda\Pipeline
  */
 final class EmptyHandler implements RequestHandlerInterface
 {
