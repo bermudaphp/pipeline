@@ -4,14 +4,14 @@ Psr-15 middleware pipeline
 ## Installation
 
 ```bash
-composer require lobster-php/pipeline
+composer require bermudaphp/pipeline
 ```
 
 ## Usage
 
 ```php
 
-$pipeline = (new PipelineFactory)();
+$pipeline = new Pipeline();
 
 $pipeline->pipe($MiddlewareInterfaceInstance);
 
