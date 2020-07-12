@@ -10,10 +10,10 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 
 /**
- * Class EmptyHandler
+ * Class EmptyPipelineHandler
  * @package Bermuda\Pipeline
  */
-final class EmptyHandler implements RequestHandlerInterface
+final class EmptyPipelineHandler implements RequestHandlerInterface
 {
     /**
      * @param ServerRequestInterface $request
@@ -21,6 +21,6 @@ final class EmptyHandler implements RequestHandlerInterface
      */
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
-        throw new \RuntimeException('Empty pipeline handler');
+        throw new \RuntimeException('Pipeline is empty!');
     }
 }
