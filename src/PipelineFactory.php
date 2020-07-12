@@ -12,14 +12,14 @@ use Psr\Http\Server\RequestHandlerInterface;
  * Class PipelineFactory
  * @package Bermuda\Pipeline
  */
-class PipelineFactory implements PipelineFactoryInterface
+final class PipelineFactory implements PipelineFactoryInterface
 {
     /**
      * @param MiddlewareInterface[] $middleware
      * @param RequestHandlerInterface|null $handler
      * @return PipelineInterface
      */
-    public function make(iterable $middleware = [], RequestHandlerInterface $handler = null) : PipelineInterface
+    public function make(?iterable $middleware = [], RequestHandlerInterface $handler = null) : PipelineInterface
     {
         $pipeline = new Pipeline($handler);
 
