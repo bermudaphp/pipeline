@@ -26,7 +26,7 @@ final class Pipeline implements PipelineInterface
     public function __construct(RequestHandlerInterface $handler = null)
     {
         $this->queue = new Queue();
-        $this->handler = $handler ?? new EmptyHandler();
+        $this->handler = $handler ?? new EmptyPipelineHandler();
     }
 
     /**
