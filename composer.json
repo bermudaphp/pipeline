@@ -8,6 +8,7 @@
   },
   "require": {
     "php": ">= 7.4",
+    "bermudaphp/config": "^1.0",
     "psr/http-server-middleware": "^1.0.1",
     "psr/http-factory": "^1.0.1"
   }
