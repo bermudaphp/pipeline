@@ -1,6 +1,5 @@
 <?php
 
-
 namespace Bermuda\Pipeline;
 
 
@@ -21,12 +20,12 @@ final class Pipeline implements PipelineInterface
 
     /**
      * Pipeline constructor.
-     * @param RequestHandlerInterface|null $handler
+     * @param RequestHandlerInterface|null $fallbackHandler
      */
-    public function __construct(RequestHandlerInterface $handler = null)
+    public function __construct(?RequestHandlerInterface $fallbackHandler = null)
     {
         $this->queue = new Queue();
-        $this->handler = $handler ?? new EmptyPipelineHandler();
+        $this->handler = $fallbackHandler ?? new EmptyPipelineHandler();
     }
 
     /**
@@ -56,5 +55,22 @@ final class Pipeline implements PipelineInterface
     public function handle(ServerRequestInterface $request): ResponseInterface 
     {
         return $this->process($request, $this->handler);
+    }
+
+    /**
+     * @param MiddlewareInterface[] $middleware
+     * @param RequestHandlerInterface|null $fallbackHandler
+     * @return self
+     */
+    public static function makeOf(iterable $middleware, ?RequestHandlerInterface $fallbackHandler = null): self
+    {
+        $self = new self($fallbackHandler);
+        
+        foreach ($middleware as $item)
+        {
+            $self->pipe($item);
+        }
+        
+        return $self;
     }
 }
