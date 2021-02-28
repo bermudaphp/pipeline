@@ -2,11 +2,9 @@
 
 namespace Bermuda\Pipeline;
 
-
 use Psr\Container\ContainerInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-
 
 /**
  * Class PipelineFactory
