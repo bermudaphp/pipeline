@@ -1,13 +1,10 @@
 <?php
 
-
 namespace Bermuda\Pipeline;
-
 
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-
 
 /**
  * Class EmptyPipelineHandler
