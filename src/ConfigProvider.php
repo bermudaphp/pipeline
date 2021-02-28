@@ -2,9 +2,7 @@
 
 namespace Bermuda\Pipeline;
 
-
 use Psr\Container\ContainerInterface;
-
 
 /**
  * Class ConfigProvider
