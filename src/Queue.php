@@ -1,11 +1,8 @@
 <?php
 
-
 namespace Bermuda\Pipeline;
 
-
 use Psr\Http\Server\MiddlewareInterface;
-
 
 /**
  * Class Queue
@@ -21,7 +18,7 @@ final class Queue
     /**
      * @param MiddlewareInterface $middleware
      */
-    public function enqueue(MiddlewareInterface $middleware) : void
+    public function enqueue(MiddlewareInterface $middleware): void
     {
         $this->middleware[] = $middleware;
     }
@@ -29,7 +26,7 @@ final class Queue
     /**
      * @return MiddlewareInterface|null
      */
-    public function dequeue() :? MiddlewareInterface
+    public function dequeue():? MiddlewareInterface
     {
         return array_shift($this->middleware);
     }
