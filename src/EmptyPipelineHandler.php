@@ -13,8 +13,7 @@ use Psr\Http\Server\RequestHandlerInterface;
 final class EmptyPipelineHandler implements RequestHandlerInterface
 {
     /**
-     * @param ServerRequestInterface $request
-     * @return ResponseInterface
+     * @inheritDoc
      */
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
