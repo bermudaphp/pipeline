@@ -17,7 +17,6 @@ class PipelineFactory implements PipelineFactoryInterface
 
     /**
      * @param ContainerInterface $container
-     * @param RequestHandlerInterface|null $handler
      * @return Pipeline
      */
     public function __invoke(ContainerInterface $container): PipelineInterface
@@ -31,9 +30,7 @@ class PipelineFactory implements PipelineFactoryInterface
     }
 
     /**
-     * @param MiddlewareInterface[]|null $middleware
-     * @param RequestHandlerInterface|null $fallbackHandler
-     * @return Pipeline
+     * @inheritDoc
      */
     public function make(?iterable $middleware = [], ?RequestHandlerInterface $fallbackHandler = null): PipelineInterface
     {
