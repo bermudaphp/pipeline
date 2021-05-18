@@ -22,8 +22,7 @@ final class Next implements RequestHandlerInterface
     }
 
     /**
-     * @param ServerRequestInterface $request
-     * @return ResponseInterface
+     * @inheritDoc
      */
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
