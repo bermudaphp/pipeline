@@ -10,11 +10,17 @@ use Psr\Container\ContainerInterface;
  */
 final class ConfigProvider extends \Bermuda\Config\ConfigProvider
 {
+    /**
+     * @inheritDoc
+     */
     protected function getFactories(): array
     {
         return [PipelineInterface::class => PipelineFactoryInterface::class];
     }
     
+    /**
+     * @inheritDoc
+     */
     protected function getInvokables(): array
     {
         return [PipelineFactoryInterface::class => PipelineFactory::class];
