@@ -27,11 +27,6 @@ final class Next implements RequestHandlerInterface
      */
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
-        if (($middleware = $this->queue->dequeue()) != null)
-        {
-            return $middleware->process($request, $this);
-        }
-
-        return $this->handler->handle($request);
+        return ($middleware = $this->queue->dequeue()) != null ? $middleware->process($request, $this) : $this->handler->handle($request);
     }
 }
