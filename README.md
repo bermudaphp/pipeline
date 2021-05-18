@@ -11,15 +11,20 @@ composer require bermudaphp/pipeline
 
 ```php
 
-$pipeline = new Pipeline();
+use function Bermuda\Pipeline\pipe;
 
-$pipeline->pipe($MiddlewareInterfaceInstance);
+pipe()->pipe($myFirstMiddlewareInstance)
+      ->pipe($mySecondMiddlewareInstance)
+      ->process($serverRequest, $requestHandler);
+```
 
-$response = $pipeline->process($request, $handler);
+## Request handling
 
-or
+```php
 
-$response = $pipeline->handle($request);
+use function Bermuda\Pipeline\pipe;
+
+pipe([$myFirstMiddlewareInstance, $mySecondMiddlewareInstance])->handle($serverRequest);
 ```
 
 
