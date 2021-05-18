@@ -18,6 +18,6 @@ final class EmptyPipelineHandler implements RequestHandlerInterface
      */
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
-        throw new \RuntimeException('Pipeline is empty!');
+        throw new \RuntimeException('Failed to process the request. The pipeline is empty!');
     }
 }
