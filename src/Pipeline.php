@@ -25,6 +25,11 @@ final class Pipeline implements PipelineInterface
         $this->queue = new Queue();
         $this->handler = $fallbackHandler ?? new EmptyPipelineHandler();
     }
+    
+    public function fallbackHandler(?RequestHandlerInterface $handler = null):? RequestHandlerInterface
+    {
+        return $handler != null ? $this->handler = $handler : $this->handler;
+    }
 
     /**
      * @param MiddlewareInterface $middleware
@@ -60,15 +65,15 @@ final class Pipeline implements PipelineInterface
      * @param RequestHandlerInterface|null $fallbackHandler
      * @return self
      */
-    public static function makeOf(iterable $middleware, ?RequestHandlerInterface $fallbackHandler = null): self
+    public static function makeOf(iterable $middleware = [], ?RequestHandlerInterface $fallbackHandler = null): self
     {
-        $self = new self($fallbackHandler);
+        $pipeline = new self($fallbackHandler);
         
         foreach ($middleware as $item)
         {
-            $self->pipe($item);
+            $pipeline->pipe($item);
         }
         
-        return $self;
+        return $pipeline;
     }
 }
