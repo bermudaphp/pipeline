@@ -22,8 +22,6 @@ pipe()->pipe($myFirstMiddlewareInstance)
 
 ```php
 
-use function Bermuda\Pipeline\pipe;
-
 pipe([$myFirstMiddlewareInstance, $mySecondMiddlewareInstance])->handle($serverRequest);
 ```
 
