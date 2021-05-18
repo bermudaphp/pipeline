@@ -15,25 +15,21 @@ final class Pipeline implements PipelineInterface
 {
     private Queue $queue;
     private RequestHandlerInterface $handler;
+    
+    public function __clone()
+    {
+        $this->queue = clone $this->queue;
+        $this->handler = clone $this->handler;
+    }
 
-    /**
-     * Pipeline constructor.
-     * @param RequestHandlerInterface|null $fallbackHandler
-     */
     public function __construct(?RequestHandlerInterface $fallbackHandler = null)
     {
         $this->queue = new Queue();
         $this->handler = $fallbackHandler ?? new EmptyPipelineHandler();
     }
-    
-    public function fallbackHandler(?RequestHandlerInterface $handler = null):? RequestHandlerInterface
-    {
-        return $handler != null ? $this->handler = $handler : $this->handler;
-    }
-
+   
     /**
-     * @param MiddlewareInterface $middleware
-     * @return Pipeline
+     * @inheritDoc
      */
     public function pipe(MiddlewareInterface $middleware): PipelineInterface
     {
@@ -42,9 +38,7 @@ final class Pipeline implements PipelineInterface
     }
 
     /**
-     * @param ServerRequestInterface $request
-     * @param RequestHandlerInterface $handler
-     * @return ResponseInterface
+     * @inheritDoc
      */
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
@@ -52,8 +46,7 @@ final class Pipeline implements PipelineInterface
     }
 
     /**
-     * @param ServerRequestInterface $request
-     * @return ResponseInterface
+     * @inheritDoc
      */
     public function handle(ServerRequestInterface $request): ResponseInterface 
     {
@@ -75,5 +68,10 @@ final class Pipeline implements PipelineInterface
         }
         
         return $pipeline;
+    }
+    
+    public function fallbackHandler(?RequestHandlerInterface $handler = null):? RequestHandlerInterface
+    {
+        return $handler != null ? $this->handler = $handler : $this->handler;
     }
 }
