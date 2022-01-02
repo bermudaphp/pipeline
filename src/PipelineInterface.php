@@ -13,7 +13,7 @@ interface PipelineInterface extends MiddlewareInterface, RequestHandlerInterface
 {
     /**
      * @param MiddlewareInterface $middleware
-     * @return Pipeline
+     * @return PipelineInterface
      */
     public function pipe(MiddlewareInterface $middleware): PipelineInterface ;
 }
