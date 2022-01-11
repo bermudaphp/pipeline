@@ -62,11 +62,7 @@ final class Pipeline implements PipelineInterface
     {
         $pipeline = new self($fallbackHandler);
         
-        foreach ($middleware as $item)
-        {
-            $pipeline->pipe($item);
-        }
-        
+        foreach ($middleware as $m) $pipeline->pipe($m);
         return $pipeline;
     }
     
