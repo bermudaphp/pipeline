@@ -16,5 +16,5 @@ interface PipelineFactoryInterface
      * @param RequestHandlerInterface|null $handler
      * @return PipelineInterface
      */
-    public function make(?array $middleware = [], RequestHandlerInterface $handler = null): PipelineInterface ;
+    public function make(?array $middleware = [], ?RequestHandlerInterface $handler = null): PipelineInterface ;
 }
