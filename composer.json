@@ -10,9 +10,9 @@
     ]
   },
   "require": {
-    "php": "^7.4|^8.0|^8.1",
-    "bermudaphp/config": "^1.1.1",
-    "psr/http-server-middleware": "^1.0.1",
+    "php": "^8.4",
+    "bermudaphp/config": "^1.4",
+    "psr/http-server-middleware": "^1.0.2",
     "psr/http-factory": "^1.0.1"
   }
 }
