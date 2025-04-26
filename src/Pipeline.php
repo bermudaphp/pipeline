@@ -107,7 +107,9 @@ final class Pipeline implements PipelineInterface, \IteratorAggregate, \Countabl
      */
     public function __clone()
     {
+        $this->position = 0;
         foreach ($this->middlewares as $i => $middleware) $this->middlewares[$i] = clone $middleware ;
+        $this->fallbackHandler = clone $this->fallbackHandler;
     }
 
     /**
