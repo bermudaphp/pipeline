@@ -1,6 +1,6 @@
 <?php
 
-namespace Bermuda\Pipeline;
+namespace Bermuda\Http\Middleware;
 
 /**
  * @param MiddlewareInterface[] $middleware
@@ -9,5 +9,5 @@ namespace Bermuda\Pipeline;
  */
 function pipe(iterable $middleware = [], ?RequestHandlerInterface $fallbackHandler = null): Pipeline
 {
-    return Pipeline::makeOf($middleware, $fallbackHandler);
+    return Pipeline::createFromIterable($middleware, $fallbackHandler);
 }
