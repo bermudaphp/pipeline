@@ -153,14 +153,13 @@ final class Pipeline implements PipelineInterface, \IteratorAggregate, \Countabl
     {
         $middleware = $this->middlewares[$this->position++] ?? null ;
 
-        if (!$middleware) {
-            try { $result = $handler->handle($request);
-            } finally { $this->position = 0; }
+        try {
+            if (!$middleware) {
+                return $handler->handle($request);
+            }
 
-            return $result;
-        }
-
-        return $middleware->process($request, $this);
+            return $middleware->process($request, $this);
+        } finally { $this->position = 0; }
     }
 
     /**
