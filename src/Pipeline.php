@@ -1,6 +1,6 @@
 <?php
 
-namespace Bermuda\Pipeline;
+namespace Bermuda\Http\Middleware;
 
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
