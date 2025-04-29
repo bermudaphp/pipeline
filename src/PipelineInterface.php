@@ -1,6 +1,6 @@
 <?php
 
-namespace Bermuda\Pipeline;
+namespace Bermuda\Http\Middleware;
 
 use Traversable;
 use Psr\Http\Server\MiddlewareInterface;
