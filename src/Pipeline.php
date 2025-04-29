@@ -1,6 +1,6 @@
 <?php
 
-namespace Bermuda\Http\Middleware;
+namespace Bermuda\Pipeline;
 
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ResponseInterface;
@@ -17,7 +17,7 @@ use Psr\Http\Server\RequestHandlerInterface;
  * - Sequentially processing a request via the process method.
  * - Handling a request with a fallback handler when the middleware chain is exhausted.
  */
-final class Pipeline implements PipelineInterface, \IteratorAggregate, \Countable
+final class Pipeline implements PipelineInterface
 {
     /**
      * Current position in the middleware chain.
@@ -77,6 +77,16 @@ final class Pipeline implements PipelineInterface, \IteratorAggregate, \Countabl
     }
 
     /**
+     * Checks if the pipeline is empty.
+     *
+     * @return bool True if there are no middleware registered; false otherwise.
+     */
+    public function isEmpty(): bool
+    {
+        return empty($this->middlewares);
+    }
+
+    /**
      * Returns the number of middleware objects in the pipeline.
      *
      * Implements the Countable interface.
@@ -113,21 +123,20 @@ final class Pipeline implements PipelineInterface, \IteratorAggregate, \Countabl
     }
 
     /**
-     * Adds middleware to the pipeline.
+     * Adds additional middleware to the pipeline.
      *
-     * Accepts either a single MiddlewareInterface instance or an iterable collection of middleware.
-     * A cloned pipeline instance is created and the provided middleware are appended,
-     * ensuring that the original pipeline remains immutable.
+     * This method appends (or prepends, based on the $prepend flag) the specified middleware to the pipeline.
+     * It returns a new Pipeline instance with the middleware integrated, leaving the original instance unchanged.
      *
-     * @param iterable<MiddlewareInterface>|MiddlewareInterface $middlewares A middleware or collection of middleware objects.
+     * @param iterable|MiddlewareInterface $middlewares One or more middleware to add.
+     * @param bool $prepend If true, adds the middleware at the beginning of the chain.
      *
-     * @return PipelineInterface Returns a new pipeline instance with the added middleware.
+     * @return PipelineInterface A new Pipeline instance with the added middleware.
      *
-     * @throws \InvalidArgumentException If any provided element does not implement MiddlewareInterface.
-     *         Error Message: "Provided middleware (index) does not implement MiddlewareInterface"
-     * @throws \RuntimeException If the middleware being added is the pipeline itself.
+     * @throws \InvalidArgumentException If any provided middleware does not implement MiddlewareInterface.
+     * @throws \RuntimeException If middleware refers to the pipeline itself.
      */
-    public function pipe(iterable|MiddlewareInterface $middlewares): PipelineInterface
+    public function pipe(iterable|MiddlewareInterface $middlewares, bool $prepend = false): PipelineInterface
     {
         $copy = clone $this;
 
@@ -142,7 +151,8 @@ final class Pipeline implements PipelineInterface, \IteratorAggregate, \Countabl
                 throw new \RuntimeException('Middleware cannot be the pipeline itself');
             }
 
-            $copy->middlewares[] = $middleware;
+            if ($prepend) array_unshift($copy->middlewares, $middleware);
+            else $copy->middlewares[] = $middleware;
         }
 
         return $copy;
