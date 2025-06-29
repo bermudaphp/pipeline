@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Bermuda\Pipeline\Tests;
+namespace Bermuda\Http\Middleware\Tests;
 
-use Bermuda\Pipeline\Pipeline;
-use Bermuda\Pipeline\PipelineInterface;
-use Bermuda\Pipeline\EmptyPipelineHandler;
+use Bermuda\Http\Middleware\Pipeline;
+use Bermuda\Http\Middleware\PipelineInterface;
+use Bermuda\Http\Middleware\EmptyPipelineHandler;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\Exception;
 use PHPUnit\Framework\TestCase;
