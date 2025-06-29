@@ -25,7 +25,7 @@
   },
   "autoload": {
     "psr-4": {
-      "Bermuda\\Pipeline\\": "src/"
+      "Bermuda\\Http\\Middleware\\": "src/"
     },
     "files": [
       "src/functions.php"
@@ -33,7 +33,7 @@
   },
   "autoload-dev": {
     "psr-4": {
-      "Bermuda\\Pipeline\\Tests\\": "tests/"
+      "Bermuda\\Http\\Middleware\\Tests\\": "tests/"
     }
   },
   "config": {
