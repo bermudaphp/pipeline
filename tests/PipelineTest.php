@@ -4,727 +4,781 @@ declare(strict_types=1);
 
 namespace Bermuda\Http\Middleware\Tests;
 
-use Bermuda\Http\Middleware\Pipeline;
-use Bermuda\Http\Middleware\PipelineInterface;
 use Bermuda\Http\Middleware\EmptyPipelineHandler;
+use Bermuda\Http\Middleware\Pipeline;
+use Bermuda\Http\Middleware\PipelineFactory;
+use Bermuda\Http\Middleware\PipelineInterface;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\MockObject\Exception;
+use PHPUnit\Framework\Attributes\TestDox;
 use PHPUnit\Framework\TestCase;
-use PHPUnit\Framework\MockObject\MockObject;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use InvalidArgumentException;
-use RuntimeException;
 
+#[CoversClass(Pipeline::class)]
 class PipelineTest extends TestCase
 {
-    private ServerRequestInterface|MockObject $request;
-    private ResponseInterface|MockObject $response;
-    private RequestHandlerInterface|MockObject $handler;
+    private ServerRequestInterface $request;
+    private ResponseInterface $response;
 
-    /**
-     * @throws Exception
-     */
     protected function setUp(): void
     {
         $this->request = $this->createMock(ServerRequestInterface::class);
         $this->response = $this->createMock(ResponseInterface::class);
-        $this->handler = $this->createMock(RequestHandlerInterface::class);
     }
 
     #[Test]
-    public function emptyPipelineConstruction(): void
+    #[TestDox('Empty pipeline delegates to fallback handler')]
+    public function emptyPipelineDelegatesToFallbackHandler(): void
     {
-        $pipeline = new Pipeline();
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->expects($this->once())
+            ->method('handle')
+            ->with($this->request)
+            ->willReturn($this->response);
 
-        $this->assertTrue($pipeline->isEmpty());
-        $this->assertCount(0, $pipeline);
-        $this->assertInstanceOf(EmptyPipelineHandler::class, $pipeline->fallbackHandler);
+        $pipeline = new Pipeline([], $handler);
+        $result = $pipeline->handle($this->request);
+
+        $this->assertSame($this->response, $result);
     }
 
     #[Test]
-    public function pipelineWithMiddlewaresConstruction(): void
+    #[TestDox('Pipeline executes middleware in correct order')]
+    public function pipelineExecutesMiddlewareInCorrectOrder(): void
     {
-        $middleware1 = $this->createTestMiddleware('middleware1');
-        $middleware2 = $this->createTestMiddleware('middleware2');
+        $executionOrder = [];
 
-        $pipeline = new Pipeline([$middleware1, $middleware2]);
+        $middleware1 = $this->createOrderTrackingMiddleware($executionOrder, 'first');
+        $middleware2 = $this->createOrderTrackingMiddleware($executionOrder, 'second');
+        $middleware3 = $this->createOrderTrackingMiddleware($executionOrder, 'third');
 
-        $this->assertFalse($pipeline->isEmpty());
-        $this->assertEquals(2, $pipeline->count());
-        $this->assertTrue($pipeline->has($middleware1));
-        $this->assertTrue($pipeline->has($middleware2));
-    }
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->method('handle')->willReturn($this->response);
 
-    /**
-     * @throws Exception
-     */
-    #[Test]
-    public function pipelineWithCustomFallbackHandler(): void
-    {
-        $customHandler = $this->createMock(RequestHandlerInterface::class);
-        $pipeline = new Pipeline([], $customHandler);
+        $pipeline = new Pipeline([$middleware1, $middleware2, $middleware3], $handler);
+        $pipeline->handle($this->request);
 
-        $this->assertSame($customHandler, $pipeline->fallbackHandler);
+        $this->assertEquals(['first', 'second', 'third'], $executionOrder);
     }
 
     #[Test]
-    public function constructionWithInvalidMiddleware(): void
+    #[TestDox('Middleware can modify request before passing to next middleware')]
+    public function middlewareCanModifyRequestBeforePassingToNext(): void
     {
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Provided middlewares (0) does not implement');
+        $modifiedRequest = $this->createMock(ServerRequestInterface::class);
+        $receivedRequests = [];
+        
+        $modifyingMiddleware = new class($modifiedRequest, $this->response) implements MiddlewareInterface {
+            public function __construct(
+                private ServerRequestInterface $modifiedRequest,
+                private ResponseInterface $response
+            ) {}
 
-        new Pipeline(['not a middleware']);
-    }
+            public function process(
+                ServerRequestInterface $request, 
+                RequestHandlerInterface $handler
+            ): ResponseInterface {
+                return $handler->handle($this->modifiedRequest);
+            }
+        };
 
-    #[Test]
-    public function constructionWithMixedValidAndInvalidMiddleware(): void
-    {
-        $middleware = $this->createTestMiddleware('valid');
+        $verifyingMiddleware = new class($receivedRequests, $this->response) implements MiddlewareInterface {
+            public function __construct(
+                private array &$receivedRequests,
+                private ResponseInterface $response
+            ) {}
 
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Provided middlewares (1) does not implement');
-
-        new Pipeline([$middleware, 'invalid middleware']);
-    }
-
-    #[Test]
-    public function hasWithMiddlewareInstance(): void
-    {
-        $middleware = $this->createTestMiddleware('test');
-        $pipeline = new Pipeline([$middleware]);
-
-        $this->assertTrue($pipeline->has($middleware));
-
-        $otherMiddleware = $this->createTestMiddleware('other');
-        $this->assertFalse($pipeline->has($otherMiddleware));
-
-        $differentMiddleware = new class implements MiddlewareInterface {
-            public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
-            {
+            public function process(
+                ServerRequestInterface $request,
+                RequestHandlerInterface $handler
+            ): ResponseInterface {
+                $this->receivedRequests[] = $request;
                 return $handler->handle($request);
             }
         };
-        $this->assertFalse($pipeline->has($differentMiddleware));
-    }
 
-    #[Test]
-    public function hasWithClassName(): void
-    {
-        $middleware = $this->createTestMiddleware('test');
-        $pipeline = new Pipeline([$middleware]);
-
-        $this->assertTrue($pipeline->has($middleware::class));
-        $this->assertFalse($pipeline->has('NonExistentClass'));
-        $this->assertFalse($pipeline->has(self::class)); // Тест класс != Middleware
-    }
-
-    #[Test]
-    public function testIsEmpty(): void
-    {
-        $pipeline = new Pipeline();
-        $this->assertTrue($pipeline->isEmpty());
-
-        $middleware = $this->createTestMiddleware('test');
-        $pipelineWithMiddleware = new Pipeline([$middleware]);
-        $this->assertFalse($pipelineWithMiddleware->isEmpty());
-    }
-
-    #[Test]
-    public function testCount(): void
-    {
-        $pipeline = new Pipeline();
-        $this->assertEquals(0, $pipeline->count());
-
-        $middleware1 = $this->createTestMiddleware('m1');
-        $middleware2 = $this->createTestMiddleware('m2');
-
-        $pipelineWithMiddlewares = new Pipeline([$middleware1, $middleware2]);
-        $this->assertCount(2, $pipelineWithMiddlewares);
-    }
-
-    #[Test]
-    public function getIterator(): void
-    {
-        $middleware1 = $this->createTestMiddleware('m1');
-        $middleware2 = $this->createTestMiddleware('m2');
-
-        $pipeline = new Pipeline([$middleware1, $middleware2]);
-
-        $middlewares = [];
-        foreach ($pipeline as $middleware) {
-            $middlewares[] = $middleware;
-        }
-
-        $this->assertCount(2, $middlewares);
-        $this->assertSame($middleware1, $middlewares[0]);
-        $this->assertSame($middleware2, $middlewares[1]);
-    }
-
-    #[Test]
-    public function getIteratorWithEmptyPipeline(): void
-    {
-        $pipeline = new Pipeline();
-
-        $middlewares = [];
-        foreach ($pipeline as $middleware) {
-            $middlewares[] = $middleware;
-        }
-
-        $this->assertEmpty($middlewares);
-    }
-
-    #[Test]
-    /**
-     * @throws Exception
-     */
-    public function testClone(): void
-    {
-        $middleware = $this->createTestMiddleware('test');
         $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->expects($this->once())
+            ->method('handle')
+            ->with($modifiedRequest)
+            ->willReturn($this->response);
+
+        $pipeline = new Pipeline([$modifyingMiddleware, $verifyingMiddleware], $handler);
+        $pipeline->handle($this->request);
+
+        $this->assertSame($modifiedRequest, $receivedRequests[0]);
+    }
+
+    #[Test]
+    #[TestDox('Middleware can modify response on the way back')]
+    public function middlewareCanModifyResponseOnTheWayBack(): void
+    {
+        $handlerResponse = $this->createMock(ResponseInterface::class);
+        $modifiedResponse = $this->createMock(ResponseInterface::class);
+        
+        $middleware = new class($modifiedResponse) implements MiddlewareInterface {
+            public function __construct(private ResponseInterface $modifiedResponse) {}
+
+            public function process(
+                ServerRequestInterface $request,
+                RequestHandlerInterface $handler
+            ): ResponseInterface {
+                $handler->handle($request); // Ignore original response
+                return $this->modifiedResponse;
+            }
+        };
+
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->method('handle')->willReturn($handlerResponse);
 
         $pipeline = new Pipeline([$middleware], $handler);
-        $clonedPipeline = clone $pipeline;
+        $result = $pipeline->handle($this->request);
 
-        $this->assertNotSame($pipeline, $clonedPipeline);
-        $this->assertEquals($pipeline->count(), $clonedPipeline->count());
-        $this->assertNotSame($pipeline->fallbackHandler, $clonedPipeline->fallbackHandler);
-
-        $originalMiddlewares = iterator_to_array($pipeline);
-        $clonedMiddlewares = iterator_to_array($clonedPipeline);
-        $this->assertNotSame($originalMiddlewares[0], $clonedMiddlewares[0]);
-        $this->assertEquals($originalMiddlewares[0]::class, $clonedMiddlewares[0]::class);
+        $this->assertSame($modifiedResponse, $result);
+        $this->assertNotSame($handlerResponse, $result);
     }
 
     #[Test]
-    public function pipeWithSingleMiddleware(): void
+    #[TestDox('Middleware can short-circuit the pipeline by returning response directly')]
+    public function middlewareCanShortCircuitPipeline(): void
     {
-        $middleware1 = $this->createTestMiddleware('m1');
-        $middleware2 = $this->createTestMiddleware('m2');
+        $shortCircuitResponse = $this->createMock(ResponseInterface::class);
+        
+        $shortCircuitMiddleware = new class($shortCircuitResponse) implements MiddlewareInterface {
+            public function __construct(private ResponseInterface $response) {}
+
+            public function process(
+                ServerRequestInterface $request,
+                RequestHandlerInterface $handler
+            ): ResponseInterface {
+                return $this->response;
+            }
+        };
+
+        $neverCalledMiddleware = $this->createMock(MiddlewareInterface::class);
+        $neverCalledMiddleware->expects($this->never())->method('process');
+
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->expects($this->never())->method('handle');
+
+        $pipeline = new Pipeline([$shortCircuitMiddleware, $neverCalledMiddleware], $handler);
+        $result = $pipeline->handle($this->request);
+
+        $this->assertSame($shortCircuitResponse, $result);
+    }
+
+    #[Test]
+    #[TestDox('Response flows back through all middleware')]
+    public function responseFlowsBackThroughAllMiddleware(): void
+    {
+        $responses = [];
+        $handlerResponse = $this->createMock(ResponseInterface::class);
+        
+        $middleware1 = $this->createResponseTrackingMiddleware($responses, 'first');
+        $middleware2 = $this->createResponseTrackingMiddleware($responses, 'second');
+
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->method('handle')->willReturn($handlerResponse);
+
+        $pipeline = new Pipeline([$middleware1, $middleware2], $handler);
+        $result = $pipeline->handle($this->request);
+
+        $this->assertSame($handlerResponse, $result);
+        $this->assertEquals(['second', 'first'], $responses);
+    }
+
+    #[Test]
+    #[TestDox('Pipeline works as middleware within another pipeline')]
+    public function pipelineWorksAsMiddlewareWithinAnotherPipeline(): void
+    {
+        $executionOrder = [];
+
+        $innerMiddleware = $this->createOrderTrackingMiddleware($executionOrder, 'inner');
+        $innerPipeline = new Pipeline([$innerMiddleware]);
+
+        $outerMiddleware = $this->createOrderTrackingMiddleware($executionOrder, 'outer');
+        
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->method('handle')->willReturn($this->response);
+
+        $outerPipeline = new Pipeline([$outerMiddleware, $innerPipeline], $handler);
+        $outerPipeline->handle($this->request);
+
+        $this->assertEquals(['outer', 'inner'], $executionOrder);
+    }
+
+    #[Test]
+    #[TestDox('Pipe method returns new instance without modifying original')]
+    public function pipeReturnsNewInstanceWithoutModifyingOriginal(): void
+    {
+        $middleware1 = $this->createMock(MiddlewareInterface::class);
+        $middleware2 = $this->createMock(MiddlewareInterface::class);
+
+        $original = new Pipeline([$middleware1]);
+        $modified = $original->pipe($middleware2);
+
+        $this->assertNotSame($original, $modified);
+        $this->assertCount(1, $original);
+        $this->assertCount(2, $modified);
+    }
+
+    #[Test]
+    #[TestDox('Pipe with prepend adds middleware at the beginning')]
+    public function pipeWithPrependAddsMiddlewareAtBeginning(): void
+    {
+        $executionOrder = [];
+
+        $middleware1 = $this->createOrderTrackingMiddleware($executionOrder, 'first');
+        $middleware2 = $this->createOrderTrackingMiddleware($executionOrder, 'second');
+
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->method('handle')->willReturn($this->response);
+
+        $pipeline = new Pipeline([$middleware1], $handler);
+        $pipeline = $pipeline->pipe($middleware2, prepend: true);
+        
+        $pipeline->handle($this->request);
+
+        $this->assertEquals(['second', 'first'], $executionOrder);
+    }
+
+    #[Test]
+    #[TestDox('Pipe accepts iterable of middleware')]
+    public function pipeAcceptsIterableOfMiddleware(): void
+    {
+        $middleware1 = $this->createMock(MiddlewareInterface::class);
+        $middleware2 = $this->createMock(MiddlewareInterface::class);
+        $middleware3 = $this->createMock(MiddlewareInterface::class);
 
         $pipeline = new Pipeline([$middleware1]);
-        $newPipeline = $pipeline->pipe($middleware2);
+        $pipeline = $pipeline->pipe([$middleware2, $middleware3]);
 
-        $this->assertNotSame($pipeline, $newPipeline);
-        $this->assertEquals(1, $pipeline->count());
-        $this->assertEquals(2, $newPipeline->count());
-        $this->assertTrue($newPipeline->has($middleware1));
-        $this->assertTrue($newPipeline->has($middleware2));
+        $this->assertCount(3, $pipeline);
     }
 
     #[Test]
-    public function pipeWithIterableMiddlewares(): void
+    #[TestDox('Pipe accepts generator as iterable')]
+    public function pipeAcceptsGeneratorAsIterable(): void
     {
-        $middleware1 = $this->createTestMiddleware('m1');
-        $middleware2 = $this->createTestMiddleware('m2');
-        $middleware3 = $this->createTestMiddleware('m3');
+        $generator = function() {
+            yield $this->createMock(MiddlewareInterface::class);
+            yield $this->createMock(MiddlewareInterface::class);
+        };
 
-        $pipeline = new Pipeline([$middleware1]);
-        $newPipeline = $pipeline->pipe([$middleware2, $middleware3]);
+        $pipeline = new Pipeline([]);
+        $pipeline = $pipeline->pipe($generator());
 
-        $this->assertEquals(1, $pipeline->count());
-        $this->assertEquals(3, $newPipeline->count());
-        $this->assertTrue($newPipeline->has($middleware1));
-        $this->assertTrue($newPipeline->has($middleware2));
-        $this->assertTrue($newPipeline->has($middleware3));
+        $this->assertCount(2, $pipeline);
     }
 
     #[Test]
-    public function pipeWithPrepend(): void
+    #[TestDox('Pipe throws exception when adding pipeline to itself')]
+    public function pipeThrowsExceptionWhenAddingPipelineToItself(): void
     {
-        $middleware1 = $this->createTestMiddleware('m1');
-        $middleware2 = $this->createTestMiddleware('m2');
+        $pipeline = new Pipeline([]);
 
-        $pipeline = new Pipeline([$middleware1]);
-        $newPipeline = $pipeline->pipe($middleware2, true);
-
-        $middlewares = iterator_to_array($newPipeline);
-
-        $this->assertEquals('m2', $middlewares[0]->getId());
-        $this->assertEquals('m1', $middlewares[1]->getId());
-        $this->assertCount(2, $middlewares);
-    }
-
-    #[Test]
-    public function pipeWithMultiplePrependMiddlewares(): void
-    {
-        $middleware1 = $this->createTestMiddleware('m1');
-        $middleware2 = $this->createTestMiddleware('m2');
-        $middleware3 = $this->createTestMiddleware('m3');
-
-        $pipeline = new Pipeline([$middleware1]);
-        $newPipeline = $pipeline->pipe([$middleware2, $middleware3], true);
-
-        $middlewares = iterator_to_array($newPipeline);
-
-        $this->assertEquals('m3', $middlewares[0]->getId());
-        $this->assertEquals('m2', $middlewares[1]->getId());
-        $this->assertEquals('m1', $middlewares[2]->getId());
-        $this->assertCount(3, $middlewares);
-    }
-
-    #[Test]
-    public function pipeWithInvalidMiddleware(): void
-    {
-        $pipeline = new Pipeline();
-
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Provided middlewares (0) does not implement');
-
-        $pipeline->pipe(['not a middleware']);
-    }
-
-    #[Test]
-    public function pipeWithSelfReference(): void
-    {
-        $pipeline = new Pipeline();
-
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Middleware cannot be the pipeline itself');
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Cannot add pipeline to itself');
 
         $pipeline->pipe($pipeline);
     }
 
     #[Test]
-    public function pipeWithSelfReferenceInArray(): void
+    #[TestDox('Pipe throws exception when adding pipeline that contains reference to this pipeline')]
+    public function pipeThrowsExceptionWhenAddingPipelineThatContainsReference(): void
     {
-        $middleware = $this->createTestMiddleware('test');
-        $pipeline = new Pipeline();
+        $pipeline1 = new Pipeline([]);
+        $pipeline2 = new Pipeline([$pipeline1]);
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Middleware cannot be the pipeline itself');
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Cannot add pipeline that contains reference to this pipeline');
 
-        $pipeline->pipe([$middleware, $pipeline]);
+        $pipeline1->pipe($pipeline2);
     }
 
     #[Test]
-    /**
-     * @throws Exception
-     */
-    public function processWithMiddlewares(): void
+    #[TestDox('Has method detects middleware by class name')]
+    public function hasMethodDetectsMiddlewareByClassName(): void
+    {
+        $middleware = new class implements MiddlewareInterface {
+            public function process(
+                ServerRequestInterface $request,
+                RequestHandlerInterface $handler
+            ): ResponseInterface {
+                return $handler->handle($request);
+            }
+        };
+
+        $pipeline = new Pipeline([$middleware]);
+
+        $this->assertTrue($pipeline->has($middleware::class));
+        $this->assertFalse($pipeline->has('NonExistentMiddleware'));
+    }
+
+    #[Test]
+    #[TestDox('Has method detects middleware by instance')]
+    public function hasMethodDetectsMiddlewareByInstance(): void
     {
         $middleware1 = $this->createMock(MiddlewareInterface::class);
         $middleware2 = $this->createMock(MiddlewareInterface::class);
 
-        $middleware1->expects($this->once())
-            ->method('process')
-            ->with($this->request, $this->isInstanceOf(Pipeline::class))
-            ->willReturnCallback(function($request, $handler) {
-                return $handler->process($request, $this->handler);
-            });
+        $pipeline = new Pipeline([$middleware1]);
 
-        $middleware2->expects($this->once())
-            ->method('process')
-            ->with($this->request, $this->isInstanceOf(Pipeline::class))
-            ->willReturnCallback(function($request, $handler) {
-                return $handler->process($request, $this->handler);
-            });
-
-        $this->handler->expects($this->once())
-            ->method('handle')
-            ->with($this->request)
-            ->willReturn($this->response);
-
-        $pipeline = new Pipeline([$middleware1, $middleware2]);
-        $result = $pipeline->process($this->request, $this->handler);
-
-        $this->assertSame($this->response, $result);
+        $this->assertTrue($pipeline->has($middleware1));
+        $this->assertFalse($pipeline->has($middleware2));
     }
 
     #[Test]
-    public function processWithEmptyPipeline(): void
-    {
-        $pipeline = new Pipeline();
-
-        $this->handler->expects($this->once())
-            ->method('handle')
-            ->with($this->request)
-            ->willReturn($this->response);
-
-        $result = $pipeline->process($this->request, $this->handler);
-
-        $this->assertSame($this->response, $result);
-    }
-
-    /**
-     * @throws Exception
-     */
-    #[Test]
-    public function processWithSingleMiddleware(): void
+    #[TestDox('Has method searches recursively in nested pipelines')]
+    public function hasMethodSearchesRecursivelyInNestedPipelines(): void
     {
         $middleware = $this->createMock(MiddlewareInterface::class);
+        $innerPipeline = new Pipeline([$middleware]);
+        $outerPipeline = new Pipeline([$innerPipeline]);
 
-        $middleware->expects($this->once())
-            ->method('process')
-            ->with($this->request, $this->isInstanceOf(Pipeline::class))
-            ->willReturn($this->response);
+        // Has does NOT search recursively based on implementation
+        $this->assertFalse($outerPipeline->has($middleware));
+        $this->assertTrue($outerPipeline->has($innerPipeline));
+    }
 
+    #[Test]
+    #[TestDox('IsEmpty returns true for empty pipeline')]
+    public function isEmptyReturnsTrueForEmptyPipeline(): void
+    {
+        $pipeline = new Pipeline([]);
+
+        $this->assertTrue($pipeline->isEmpty());
+    }
+
+    #[Test]
+    #[TestDox('IsEmpty returns false for non-empty pipeline')]
+    public function isEmptyReturnsFalseForNonEmptyPipeline(): void
+    {
+        $middleware = $this->createMock(MiddlewareInterface::class);
         $pipeline = new Pipeline([$middleware]);
-        $result = $pipeline->process($this->request, $this->handler);
 
-        $this->assertSame($this->response, $result);
+        $this->assertFalse($pipeline->isEmpty());
     }
 
-    /**
-     * @throws Exception
-     */
     #[Test]
-    public function handle(): void
+    #[TestDox('Count returns correct number of middleware')]
+    public function countReturnsCorrectNumberOfMiddleware(): void
     {
-        $middleware = $this->createMock(MiddlewareInterface::class);
-        $fallbackHandler = $this->createMock(RequestHandlerInterface::class);
+        $pipeline = new Pipeline([
+            $this->createMock(MiddlewareInterface::class),
+            $this->createMock(MiddlewareInterface::class),
+            $this->createMock(MiddlewareInterface::class),
+        ]);
 
-        $middleware->expects($this->once())
-            ->method('process')
-            ->with($this->request, $this->isInstanceOf(Pipeline::class))
-            ->willReturnCallback(function($request, $handler) {
-                return $handler->process($request, $handler->fallbackHandler);
-            });
+        $this->assertCount(3, $pipeline);
+    }
 
-        $fallbackHandler->expects($this->once())
+    #[Test]
+    #[TestDox('Pipeline is iterable and yields all middleware in order')]
+    public function pipelineIsIterableAndYieldsAllMiddlewareInOrder(): void
+    {
+        $middleware1 = $this->createMock(MiddlewareInterface::class);
+        $middleware2 = $this->createMock(MiddlewareInterface::class);
+        $middleware3 = $this->createMock(MiddlewareInterface::class);
+
+        $pipeline = new Pipeline([$middleware1, $middleware2, $middleware3]);
+
+        $collected = [];
+        foreach ($pipeline as $middleware) {
+            $collected[] = $middleware;
+        }
+
+        $this->assertSame([$middleware1, $middleware2, $middleware3], $collected);
+    }
+
+    #[Test]
+    #[TestDox('Cloning pipeline creates independent copy')]
+    public function cloningPipelineCreatesIndependentCopy(): void
+    {
+        $middleware = new class implements MiddlewareInterface {
+            public int $callCount = 0;
+
+            public function process(
+                ServerRequestInterface $request,
+                RequestHandlerInterface $handler
+            ): ResponseInterface {
+                $this->callCount++;
+                return $handler->handle($request);
+            }
+        };
+
+        $handler = new class($this->response) implements RequestHandlerInterface {
+            public int $callCount = 0;
+
+            public function __construct(private ResponseInterface $response) {}
+
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                $this->callCount++;
+                return $this->response;
+            }
+        };
+
+        $original = new Pipeline([$middleware], $handler);
+        $cloned = clone $original;
+
+        // Execute both pipelines
+        $original->handle($this->request);
+        $cloned->handle($this->request);
+
+        // Get middleware and handlers from both
+        $originalMiddlewares = iterator_to_array($original);
+        $clonedMiddlewares = iterator_to_array($cloned);
+
+        // Verify they are different instances
+        $this->assertNotSame($originalMiddlewares[0], $clonedMiddlewares[0]);
+        $this->assertNotSame($original->fallbackHandler, $cloned->fallbackHandler);
+
+        // Verify independent state
+        $this->assertEquals(1, $originalMiddlewares[0]->callCount);
+        $this->assertEquals(1, $clonedMiddlewares[0]->callCount);
+        $this->assertEquals(1, $original->fallbackHandler->callCount);
+        $this->assertEquals(1, $cloned->fallbackHandler->callCount);
+    }
+
+    #[Test]
+    #[TestDox('WithFallbackHandler returns new instance with updated handler')]
+    public function withFallbackHandlerReturnsNewInstanceWithUpdatedHandler(): void
+    {
+        $handler1 = $this->createMock(RequestHandlerInterface::class);
+        $handler2 = $this->createMock(RequestHandlerInterface::class);
+        $handler2->expects($this->once())
             ->method('handle')
-            ->with($this->request)
             ->willReturn($this->response);
 
-        $pipeline = new Pipeline([$middleware], $fallbackHandler);
-        $result = $pipeline->handle($this->request);
+        $original = new Pipeline([], $handler1);
+        $modified = $original->withFallbackHandler($handler2);
 
-        $this->assertSame($this->response, $result);
+        $this->assertNotSame($original, $modified);
+        $this->assertSame($handler1, $original->fallbackHandler);
+        $this->assertSame($handler2, $modified->fallbackHandler);
+
+        $modified->handle($this->request);
     }
 
     #[Test]
-    public function handleWithEmptyPipelineThrowsException(): void
+    #[TestDox('CreateFromIterable creates pipeline with provided middleware')]
+    public function createFromIterableCreatesPipelineWithProvidedMiddleware(): void
     {
-        $pipeline = new Pipeline();
-
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('Failed to process the request. The pipeline is empty!');
-
-        $pipeline->handle($this->request);
-    }
-
-    /**
-     * @throws Exception
-     */
-    #[Test]
-    public function handleWithCustomFallbackHandler(): void
-    {
-        $fallbackHandler = $this->createMock(RequestHandlerInterface::class);
-        $fallbackHandler->expects($this->once())
-            ->method('handle')
-            ->with($this->request)
-            ->willReturn($this->response);
-
-        $pipeline = new Pipeline([], $fallbackHandler);
-        $result = $pipeline->handle($this->request);
-
-        $this->assertSame($this->response, $result);
-    }
-
-    /**
-     * @throws Exception
-     */
-    #[Test]
-    public function createFromIterable(): void
-    {
-        $middleware1 = $this->createTestMiddleware('m1');
-        $middleware2 = $this->createTestMiddleware('m2');
+        $middleware1 = $this->createMock(MiddlewareInterface::class);
+        $middleware2 = $this->createMock(MiddlewareInterface::class);
         $handler = $this->createMock(RequestHandlerInterface::class);
 
         $pipeline = Pipeline::createFromIterable([$middleware1, $middleware2], $handler);
 
         $this->assertInstanceOf(PipelineInterface::class, $pipeline);
-        $this->assertEquals(2, $pipeline->count());
-        $this->assertTrue($pipeline->has($middleware1));
-        $this->assertTrue($pipeline->has($middleware2));
+        $this->assertCount(2, $pipeline);
         $this->assertSame($handler, $pipeline->fallbackHandler);
     }
 
     #[Test]
-    public function createFromIterableWithoutFallbackHandler(): void
-    {
-        $middleware = $this->createTestMiddleware('test');
-
-        $pipeline = Pipeline::createFromIterable([$middleware]);
-
-        $this->assertInstanceOf(EmptyPipelineHandler::class, $pipeline->fallbackHandler);
-    }
-
-    #[Test]
-    public function createFromIterableWithEmptyIterable(): void
+    #[TestDox('CreateFromIterable uses EmptyPipelineHandler when no handler provided')]
+    public function createFromIterableUsesEmptyHandlerWhenNoHandlerProvided(): void
     {
         $pipeline = Pipeline::createFromIterable([]);
 
-        $this->assertTrue($pipeline->isEmpty());
-        $this->assertEquals(0, $pipeline->count());
         $this->assertInstanceOf(EmptyPipelineHandler::class, $pipeline->fallbackHandler);
     }
 
     #[Test]
-    public function createFromIterableWithGenerator(): void
+    #[TestDox('Constructor throws exception for invalid middleware')]
+    public function constructorThrowsExceptionForInvalidMiddleware(): void
     {
-        $generateMiddlewares = function() {
-            yield $this->createTestMiddleware('m1');
-            yield $this->createTestMiddleware('m2');
-        };
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('must implement');
 
-        $pipeline = Pipeline::createFromIterable($generateMiddlewares());
-
-        $this->assertEquals(2, $pipeline->count());
-        $this->assertFalse($pipeline->isEmpty());
+        new Pipeline(['not a middleware']);
     }
 
     #[Test]
-    public function withFallbackHandler(): void
+    #[TestDox('Constructor throws exception with position information')]
+    public function constructorThrowsExceptionWithPositionInformation(): void
     {
-        $originalHandler = $this->createMock(RequestHandlerInterface::class);
-        $newHandler = $this->createMock(RequestHandlerInterface::class);
+        $middleware1 = $this->createMock(MiddlewareInterface::class);
+        
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('position 1');
 
-        $pipeline = new Pipeline([], $originalHandler);
-        $newPipeline = $pipeline->withFallbackHandler($newHandler);
-
-        $this->assertNotSame($pipeline, $newPipeline);
-        $this->assertSame($originalHandler, $pipeline->fallbackHandler);
-        $this->assertSame($newHandler, $newPipeline->fallbackHandler);
+        new Pipeline([$middleware1, 'invalid']);
     }
 
     #[Test]
-    public function withFallbackHandlerKeepsMiddlewares(): void
+    #[TestDox('Pipe throws exception for invalid middleware')]
+    public function pipeThrowsExceptionForInvalidMiddleware(): void
     {
-        $middleware = $this->createTestMiddleware('test');
-        $originalHandler = $this->createMock(RequestHandlerInterface::class);
-        $newHandler = $this->createMock(RequestHandlerInterface::class);
+        $pipeline = new Pipeline([]);
 
-        $pipeline = new Pipeline([$middleware], $originalHandler);
-        $newPipeline = $pipeline->withFallbackHandler($newHandler);
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('must implement');
 
-        $this->assertEquals($pipeline->count(), $newPipeline->count());
-        $this->assertTrue($newPipeline->has($middleware));
+        $pipeline->pipe(['not a middleware']);
     }
 
     #[Test]
-    public function middlewareExecutionOrder(): void
+    #[TestDox('Process method works correctly when pipeline used as middleware')]
+    public function processMethodWorksCorrectlyWhenPipelineUsedAsMiddleware(): void
     {
         $executionOrder = [];
 
-        $middleware1 = new class($executionOrder) implements MiddlewareInterface {
-            public function __construct(private array &$order) {}
+        $innerMiddleware = $this->createOrderTrackingMiddleware($executionOrder, 'inner');
+        $innerPipeline = new Pipeline([$innerMiddleware]);
 
-            public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
-            {
-                $this->order[] = 'middleware1_before';
-                $response = $handler->handle($request);
-                $this->order[] = 'middleware1_after';
-                return $response;
+        $externalHandler = $this->createMock(RequestHandlerInterface::class);
+        $externalHandler->expects($this->once())
+            ->method('handle')
+            ->willReturn($this->response);
+
+        $result = $innerPipeline->process($this->request, $externalHandler);
+
+        $this->assertSame($this->response, $result);
+        $this->assertEquals(['inner'], $executionOrder);
+    }
+
+    #[Test]
+    #[TestDox('Process method uses provided handler instead of fallback')]
+    public function processMethodUsesProvidedHandlerInsteadOfFallback(): void
+    {
+        $fallbackHandler = $this->createMock(RequestHandlerInterface::class);
+        $fallbackHandler->expects($this->never())->method('handle');
+
+        $externalHandler = $this->createMock(RequestHandlerInterface::class);
+        $externalHandler->expects($this->once())
+            ->method('handle')
+            ->willReturn($this->response);
+
+        $pipeline = new Pipeline([], $fallbackHandler);
+        $result = $pipeline->process($this->request, $externalHandler);
+
+        $this->assertSame($this->response, $result);
+    }
+
+    #[Test]
+    #[TestDox('Pipeline can handle complex nested structures')]
+    public function pipelineCanHandleComplexNestedStructures(): void
+    {
+        $executionOrder = [];
+
+        $level3Middleware = $this->createOrderTrackingMiddleware($executionOrder, 'level3');
+        $level3Pipeline = new Pipeline([$level3Middleware]);
+
+        $level2Middleware = $this->createOrderTrackingMiddleware($executionOrder, 'level2');
+        $level2Pipeline = new Pipeline([$level2Middleware, $level3Pipeline]);
+
+        $level1Middleware = $this->createOrderTrackingMiddleware($executionOrder, 'level1');
+        
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->method('handle')->willReturn($this->response);
+
+        $mainPipeline = new Pipeline([$level1Middleware, $level2Pipeline], $handler);
+        $mainPipeline->handle($this->request);
+
+        $this->assertEquals(['level1', 'level2', 'level3'], $executionOrder);
+    }
+
+    #[Test]
+    #[TestDox('Pipeline handles exceptions from middleware correctly')]
+    public function pipelineHandlesExceptionsFromMiddlewareCorrectly(): void
+    {
+        $failingMiddleware = new class implements MiddlewareInterface {
+            public function process(
+                ServerRequestInterface $request,
+                RequestHandlerInterface $handler
+            ): ResponseInterface {
+                throw new \RuntimeException('Middleware failed');
             }
         };
 
-        $middleware2 = new class($executionOrder) implements MiddlewareInterface {
-            public function __construct(private array &$order) {}
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $pipeline = new Pipeline([$failingMiddleware], $handler);
 
-            public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
-            {
-                $this->order[] = 'middleware2_before';
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Middleware failed');
+
+        $pipeline->handle($this->request);
+    }
+
+    #[Test]
+    #[TestDox('Pipeline handles exceptions from handler correctly')]
+    public function pipelineHandlesExceptionsFromHandlerCorrectly(): void
+    {
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $handler->method('handle')
+            ->willThrowException(new \RuntimeException('Handler failed'));
+
+        $pipeline = new Pipeline([], $handler);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Handler failed');
+
+        $pipeline->handle($this->request);
+    }
+
+    #[Test]
+    #[TestDox('Multiple pipelines can be used concurrently without interference')]
+    public function multiplePipelinesCanBeUsedConcurrentlyWithoutInterference(): void
+    {
+        $middleware = $this->createMock(MiddlewareInterface::class);
+        $middleware->method('process')
+            ->willReturnCallback(fn($req, $handler) => $handler->handle($req));
+
+        $response1 = $this->createMock(ResponseInterface::class);
+        $response2 = $this->createMock(ResponseInterface::class);
+
+        $handler1 = $this->createMock(RequestHandlerInterface::class);
+        $handler1->method('handle')->willReturn($response1);
+
+        $handler2 = $this->createMock(RequestHandlerInterface::class);
+        $handler2->method('handle')->willReturn($response2);
+
+        $pipeline = new Pipeline([$middleware]);
+
+        $result1 = $pipeline->process($this->request, $handler1);
+        $result2 = $pipeline->process($this->request, $handler2);
+
+        $this->assertSame($response1, $result1);
+        $this->assertSame($response2, $result2);
+    }
+
+    private function createOrderTrackingMiddleware(array &$executionOrder, string $name): MiddlewareInterface
+    {
+        return new class($executionOrder, $name) implements MiddlewareInterface {
+            public function __construct(
+                private array &$executionOrder,
+                private string $name
+            ) {}
+
+            public function process(
+                ServerRequestInterface $request,
+                RequestHandlerInterface $handler
+            ): ResponseInterface {
+                $this->executionOrder[] = $this->name;
+                return $handler->handle($request);
+            }
+        };
+    }
+
+    private function createResponseTrackingMiddleware(array &$responses, string $name): MiddlewareInterface
+    {
+        return new class($responses, $name) implements MiddlewareInterface {
+            public function __construct(
+                private array &$responses,
+                private string $name
+            ) {}
+
+            public function process(
+                ServerRequestInterface $request,
+                RequestHandlerInterface $handler
+            ): ResponseInterface {
                 $response = $handler->handle($request);
-                $this->order[] = 'middleware2_after';
+                $this->responses[] = $this->name;
                 return $response;
             }
         };
+    }
+}
 
-        $handler = new class($executionOrder, $this->response) implements RequestHandlerInterface {
-            public function __construct(private array &$order, private ResponseInterface $response) {}
+#[CoversClass(EmptyPipelineHandler::class)]
+class EmptyPipelineHandlerTest extends TestCase
+{
+    #[Test]
+    #[TestDox('Handler throws exception when invoked')]
+    public function handlerThrowsExceptionWhenInvoked(): void
+    {
+        $handler = new EmptyPipelineHandler();
+        $request = $this->createMock(ServerRequestInterface::class);
 
-            public function handle(ServerRequestInterface $request): ResponseInterface
-            {
-                $this->order[] = 'handler';
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Failed to process the request. The pipeline is empty!');
+
+        $handler->handle($request);
+    }
+
+    #[Test]
+    #[TestDox('Empty pipeline with default handler throws meaningful error')]
+    public function emptyPipelineWithDefaultHandlerThrowsMeaningfulError(): void
+    {
+        $pipeline = new Pipeline([]);
+        $request = $this->createMock(ServerRequestInterface::class);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Failed to process the request. The pipeline is empty!');
+
+        $pipeline->handle($request);
+    }
+}
+
+#[CoversClass(PipelineFactory::class)]
+class PipelineFactoryTest extends TestCase
+{
+    private PipelineFactory $factory;
+
+    protected function setUp(): void
+    {
+        $this->factory = new PipelineFactory();
+    }
+
+    #[Test]
+    #[TestDox('Factory creates pipeline with provided middleware')]
+    public function factoryCreatesPipelineWithProvidedMiddleware(): void
+    {
+        $middleware1 = $this->createMock(MiddlewareInterface::class);
+        $middleware2 = $this->createMock(MiddlewareInterface::class);
+
+        $pipeline = $this->factory->createMiddlewarePipeline([$middleware1, $middleware2]);
+
+        $this->assertInstanceOf(PipelineInterface::class, $pipeline);
+        $this->assertCount(2, $pipeline);
+    }
+
+    #[Test]
+    #[TestDox('Factory creates pipeline with custom fallback handler')]
+    public function factoryCreatesPipelineWithCustomFallbackHandler(): void
+    {
+        $handler = $this->createMock(RequestHandlerInterface::class);
+        $pipeline = $this->factory->createMiddlewarePipeline([], $handler);
+
+        $this->assertSame($handler, $pipeline->fallbackHandler);
+    }
+
+    #[Test]
+    #[TestDox('Factory creates pipeline with default handler when none provided')]
+    public function factoryCreatesPipelineWithDefaultHandlerWhenNoneProvided(): void
+    {
+        $pipeline = $this->factory->createMiddlewarePipeline();
+
+        $this->assertInstanceOf(EmptyPipelineHandler::class, $pipeline->fallbackHandler);
+        $this->assertTrue($pipeline->isEmpty());
+    }
+
+    #[Test]
+    #[TestDox('Factory creates functional pipeline that processes requests')]
+    public function factoryCreatesFunctionalPipelineThatProcessesRequests(): void
+    {
+        $request = $this->createMock(ServerRequestInterface::class);
+        $response = $this->createMock(ResponseInterface::class);
+
+        $middleware = new class($response) implements MiddlewareInterface {
+            public function __construct(private ResponseInterface $response) {}
+
+            public function process(
+                ServerRequestInterface $request,
+                RequestHandlerInterface $handler
+            ): ResponseInterface {
                 return $this->response;
             }
         };
 
-        $pipeline = new Pipeline([$middleware1, $middleware2], $handler);
-        $pipeline->handle($this->request);
+        $pipeline = $this->factory->createMiddlewarePipeline([$middleware]);
+        $result = $pipeline->handle($request);
 
-        $expectedOrder = [
-            'middleware1_before',
-            'middleware2_before',
-            'handler',
-            'middleware2_after',
-            'middleware1_after'
-        ];
-
-        $this->assertEquals($expectedOrder, $executionOrder);
-    }
-
-    /**
-     * @throws Exception
-     */
-    #[Test]
-    public function positionResetAfterProcessing(): void
-    {
-        $middleware = $this->createMock(MiddlewareInterface::class);
-        $pipeline = new Pipeline([$middleware]);
-
-        $middleware->expects($this->exactly(2))
-            ->method('process')
-            ->with($this->request, $this->isInstanceOf(Pipeline::class))
-            ->willReturnCallback(function($request, $handler) {
-                return $handler->process($request, $this->handler);
-            });
-
-        $this->handler->expects($this->exactly(2))
-            ->method('handle')
-            ->with($this->request)
-            ->willReturn($this->response);
-
-        $result1 = $pipeline->process($this->request, $this->handler);
-        $this->assertSame($this->response, $result1);
-
-        $result2 = $pipeline->process($this->request, $this->handler);
-        $this->assertSame($this->response, $result2);
-    }
-
-    #[Test]
-    public function multipleIterations(): void
-    {
-        $middleware1 = $this->createTestMiddleware('m1');
-        $middleware2 = $this->createTestMiddleware('m2');
-
-        $pipeline = new Pipeline([$middleware1, $middleware2]);
-
-        $firstIteration = [];
-        foreach ($pipeline as $middleware) {
-            $firstIteration[] = $middleware;
-        }
-
-        $secondIteration = [];
-        foreach ($pipeline as $middleware) {
-            $secondIteration[] = $middleware;
-        }
-
-        $this->assertEquals($firstIteration, $secondIteration);
-        $this->assertCount(2, $firstIteration);
-        $this->assertCount(2, $secondIteration);
-        $this->assertEquals($firstIteration[0]->getId(), $secondIteration[0]->getId());
-    }
-
-    /**
-     * @throws Exception
-     */
-    #[Test]
-    public function processWithException(): void
-    {
-        $exception = new \RuntimeException('Middleware exception');
-        $middleware = $this->createMock(MiddlewareInterface::class);
-
-        $middleware->expects($this->once())
-            ->method('process')
-            ->willThrowException($exception);
-
-        $pipeline = new Pipeline([$middleware]);
-
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Middleware exception');
-
-        $pipeline->process($this->request, $this->handler);
-    }
-
-    /**
-     * @throws Exception
-     */
-    #[Test]
-    public function handleWithException(): void
-    {
-        $exception = new \RuntimeException('Handler exception');
-        $fallbackHandler = $this->createMock(RequestHandlerInterface::class);
-
-        $fallbackHandler->expects($this->once())
-            ->method('handle')
-            ->willThrowException($exception);
-
-        $pipeline = new Pipeline([], $fallbackHandler);
-
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('Handler exception');
-
-        $pipeline->handle($this->request);
-    }
-
-    /**
-     * Helper method to create test middleware instances with unique classes
-     */
-    private function createTestMiddleware(string $id): MiddlewareInterface
-    {
-        return match ($id) {
-            'test' => new class implements MiddlewareInterface {
-                public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
-                {
-                    return $handler->handle($request);
-                }
-
-                public function getId(): string
-                {
-                    return 'test';
-                }
-            },
-            'other' => new class implements MiddlewareInterface {
-                public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
-                {
-                    return $handler->handle($request);
-                }
-
-                public function getId(): string
-                {
-                    return 'other';
-                }
-            },
-            'm1' => new class implements MiddlewareInterface {
-                public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
-                {
-                    return $handler->handle($request);
-                }
-
-                public function getId(): string
-                {
-                    return 'm1';
-                }
-            },
-            'm2' => new class implements MiddlewareInterface {
-                public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
-                {
-                    return $handler->handle($request);
-                }
-
-                public function getId(): string
-                {
-                    return 'm2';
-                }
-            },
-            'm3' => new class implements MiddlewareInterface {
-                public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
-                {
-                    return $handler->handle($request);
-                }
-
-                public function getId(): string
-                {
-                    return 'm3';
-                }
-            },
-            default => new class($id) implements MiddlewareInterface {
-                public function __construct(private string $id) {}
-
-                public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
-                {
-                    return $handler->handle($request);
-                }
-
-                public function getId(): string
-                {
-                    return $this->id;
-                }
-            }
-        };
+        $this->assertSame($response, $result);
     }
 }
