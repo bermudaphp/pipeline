@@ -11,21 +11,42 @@ use Psr\Http\Server\RequestHandlerInterface;
 /**
  * Class Pipeline
  *
- * This class is responsible for processing a server request through a chain of middleware.
- * It implements the PipelineInterface and provides methods for:
- * - Adding middleware via the pipe method.
- * - Sequentially processing a request via the process method.
- * - Handling a request with a fallback handler when the middleware chain is exhausted.
+ * Stateless middleware pipeline that processes HTTP requests through a chain of PSR-15 middleware.
+ * This implementation uses a recursive approach without mutable state, making it thread-safe
+ * and safe for concurrent request processing.
+ *
+ * Key features:
+ * - Thread-safe: No mutable position state
+ * - Immutable: pipe() returns new instances
+ * - Composable: Pipelines can contain other pipelines
+ * - PSR-15 compliant: Implements MiddlewareInterface and RequestHandlerInterface
+ *
+ * @example Basic usage
+ * ```php
+ * $pipeline = new Pipeline([
+ *     new AuthenticationMiddleware(),
+ *     new LoggingMiddleware(),
+ *     new CorsMiddleware(),
+ * ], new ApplicationHandler());
+ *
+ * $response = $pipeline->handle($request);
+ * ```
+ *
+ * @example Pipeline composition
+ * ```php
+ * $apiPipeline = new Pipeline([
+ *     new RateLimitMiddleware(),
+ *     new JsonMiddleware(),
+ * ]);
+ *
+ * $mainPipeline = new Pipeline([
+ *     new LoggingMiddleware(),
+ *     $apiPipeline, // Pipeline as middleware
+ * ], $handler);
+ * ```
  */
 final class Pipeline implements PipelineInterface
 {
-    /**
-     * Current position in the middleware chain.
-     *
-     * @var int
-     */
-    private int $position = 0;
-
     /**
      * An array of middleware objects that implement MiddlewareInterface.
      *
@@ -45,17 +66,21 @@ final class Pipeline implements PipelineInterface
      *                                                  Defaults to an instance of EmptyPipelineHandler.
      *
      * @throws \InvalidArgumentException if any middleware does not implement MiddlewareInterface.
-     *         Error Message: "Provided middleware does not implement MiddlewareInterface"
+     *
+     * @example
+     * ```php
+     * $pipeline = new Pipeline([
+     *     new AuthMiddleware(),
+     *     new ValidationMiddleware(),
+     * ], new AppHandler());
+     * ```
      */
     public function __construct(
         iterable $middlewares = [],
         private(set) RequestHandlerInterface $fallbackHandler = new EmptyPipelineHandler
     ) {
         foreach ($middlewares as $i => $middleware) {
-            if (!$middleware instanceof MiddlewareInterface) {
-                throw new \InvalidArgumentException("Provided middlewares ($i) does not implement " . MiddlewareInterface::class);
-            }
-
+            $this->validateMiddleware($middleware, $i);
             $this->middlewares[] = $middleware;
         }
     }
@@ -66,20 +91,50 @@ final class Pipeline implements PipelineInterface
      *
      * @param MiddlewareInterface|class-string<T> $middleware The middleware instance or class to search for.
      * @return bool Returns true if the middleware exists; false otherwise.
+     *
+     * @example Check by class name
+     * ```php
+     * if ($pipeline->has(AuthMiddleware::class)) {
+     *     // Pipeline includes authentication
+     * }
+     * ```
+     *
+     * @example Check by instance
+     * ```php
+     * $auth = new AuthMiddleware();
+     * if ($pipeline->has($auth)) {
+     *     // This specific instance is in the pipeline
+     * }
+     * ```
      */
     public function has(MiddlewareInterface|string $middleware): bool
     {
-        if ($middleware instanceof MiddlewareInterface) $middleware = $middleware::class;
+        foreach ($this->middlewares as $m) {
+            // Check by instance (identity)
+            if ($middleware instanceof MiddlewareInterface && $m === $middleware) {
+                return true;
+            }
+            
+            // Check by class
+            if (is_string($middleware) && $m::class === $middleware) {
+                return true;
+            }
+        }
 
-        return array_any($this->middlewares,
-            static fn (MiddlewareInterface $m) => $middleware === $m::class
-        );
+        return false;
     }
 
     /**
      * Checks if the pipeline is empty.
      *
      * @return bool True if there are no middleware registered; false otherwise.
+     *
+     * @example
+     * ```php
+     * if ($pipeline->isEmpty()) {
+     *     // Request will go directly to fallback handler
+     * }
+     * ```
      */
     public function isEmpty(): bool
     {
@@ -92,6 +147,11 @@ final class Pipeline implements PipelineInterface
      * Implements the Countable interface.
      *
      * @return int The count of middleware components.
+     *
+     * @example
+     * ```php
+     * echo "Pipeline has " . count($pipeline) . " middleware";
+     * ```
      */
     public function count(): int
     {
@@ -104,6 +164,13 @@ final class Pipeline implements PipelineInterface
      * Implements the IteratorAggregate interface, allowing foreach iteration over the middleware.
      *
      * @return \Generator<MiddlewareInterface> A generator that yields each middleware in the pipeline.
+     *
+     * @example
+     * ```php
+     * foreach ($pipeline as $middleware) {
+     *     echo get_class($middleware) . "\n";
+     * }
+     * ```
      */
     public function getIterator(): \Generator
     {
@@ -113,12 +180,14 @@ final class Pipeline implements PipelineInterface
     /**
      * Performs a deep clone of the pipeline.
      *
-     * When cloning, each registered middleware is also cloned to prevent shared state issues.
+     * When cloning, each registered middleware and the fallback handler are also cloned
+     * to prevent shared state issues.
      */
     public function __clone()
     {
-        $this->position = 0;
-        foreach ($this->middlewares as $i => $middleware) $this->middlewares[$i] = clone $middleware ;
+        foreach ($this->middlewares as $i => $middleware) {
+            $this->middlewares[$i] = clone $middleware;
+        }
         $this->fallbackHandler = clone $this->fallbackHandler;
     }
 
@@ -135,51 +204,153 @@ final class Pipeline implements PipelineInterface
      *
      * @throws \InvalidArgumentException If any provided middleware does not implement MiddlewareInterface.
      * @throws \RuntimeException If middleware refers to the pipeline itself.
+     *
+     * @example Append middleware
+     * ```php
+     * $pipeline = $pipeline->pipe([
+     *     new CacheMiddleware(),
+     *     new CompressionMiddleware(),
+     * ]);
+     * ```
+     *
+     * @example Prepend middleware (execute first)
+     * ```php
+     * $pipeline = $pipeline->pipe(new SecurityHeadersMiddleware(), prepend: true);
+     * ```
      */
     public function pipe(iterable|MiddlewareInterface $middlewares, bool $prepend = false): PipelineInterface
     {
         $copy = clone $this;
 
-        if ($middlewares instanceof MiddlewareInterface) $middlewares = [$middlewares];
+        if ($middlewares instanceof MiddlewareInterface) {
+            $middlewares = [$middlewares];
+        }
 
         foreach ($middlewares as $i => $middleware) {
-            if (!$middleware instanceof MiddlewareInterface) {
-                throw new \InvalidArgumentException("Provided middlewares ($i) does not implement " . MiddlewareInterface::class);
-            }
+            $this->validateMiddleware($middleware, $i);
 
             if ($middleware === $this) {
-                throw new \RuntimeException('Middleware cannot be the pipeline itself');
+                throw new \RuntimeException('Cannot add pipeline to itself - this would create circular reference');
             }
 
-            if ($prepend) array_unshift($copy->middlewares, $middleware);
-            else $copy->middlewares[] = $middleware;
+            // Check for nested circular references
+            if ($middleware instanceof PipelineInterface && $middleware->has($this)) {
+                throw new \RuntimeException('Cannot add pipeline that contains reference to this pipeline');
+            }
+
+            if ($prepend) {
+                array_unshift($copy->middlewares, $middleware);
+            } else {
+                $copy->middlewares[] = $middleware;
+            }
         }
 
         return $copy;
     }
 
     /**
-     * @inheritDoc
+     * Processes a request through the middleware chain.
+     *
+     * This method implements MiddlewareInterface::process(), allowing the pipeline
+     * to act as middleware within another pipeline.
+     *
+     * @param ServerRequestInterface $request The server request to process.
+     * @param RequestHandlerInterface $handler The handler to use when middleware chain is exhausted.
+     * @return ResponseInterface The HTTP response.
+     *
+     * @example Using pipeline as middleware
+     * ```php
+     * $innerPipeline = new Pipeline([new ValidatorMiddleware()]);
+     * 
+     * $outerPipeline = new Pipeline([
+     *     new LoggingMiddleware(),
+     *     $innerPipeline, // Acts as middleware
+     * ], $handler);
+     * ```
      */
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
     {
-        $middleware = $this->middlewares[$this->position++] ?? null ;
-
-        try {
-            if (!$middleware) {
-                return $handler->handle($request);
-            }
-
-            return $middleware->process($request, $this);
-        } finally { $this->position = 0; }
+        return $this->processMiddleware($request, 0, $handler);
     }
 
     /**
-     * @inheritDoc
+     * Handles a request through the middleware chain using the fallback handler.
+     *
+     * This method implements RequestHandlerInterface::handle(), allowing the pipeline
+     * to act as a request handler.
+     *
+     * @param ServerRequestInterface $request The server request to handle.
+     * @return ResponseInterface The HTTP response.
+     *
+     * @example
+     * ```php
+     * $pipeline = new Pipeline($middlewares, $appHandler);
+     * $response = $pipeline->handle($request);
+     * ```
      */
     public function handle(ServerRequestInterface $request): ResponseInterface 
     {
-        return $this->process($request, $this->fallbackHandler);
+        return $this->processMiddleware($request, 0, $this->fallbackHandler);
+    }
+
+    /**
+     * Recursively processes middleware starting from the given position.
+     *
+     * This stateless approach eliminates the need for mutable position tracking,
+     * making the pipeline safe for concurrent use and easier to reason about.
+     *
+     * @param ServerRequestInterface $request The request to process.
+     * @param int $position Current position in the middleware chain.
+     * @param RequestHandlerInterface $finalHandler Handler to use when all middleware are exhausted.
+     * @return ResponseInterface The HTTP response.
+     */
+    private function processMiddleware(
+        ServerRequestInterface $request,
+        int $position,
+        RequestHandlerInterface $finalHandler
+    ): ResponseInterface {
+        // If we've exhausted all middleware, use the final handler
+        if (!isset($this->middlewares[$position])) {
+            return $finalHandler->handle($request);
+        }
+
+        // Create a handler that will process the next middleware in the chain
+        $nextPosition = $position + 1;
+        $handler = new class($nextPosition, $finalHandler, function($req, $pos, $fh) {
+            return $this->processMiddleware($req, $pos, $fh);
+        }) implements RequestHandlerInterface {
+            public function __construct(
+                private readonly int $nextPosition,
+                private readonly RequestHandlerInterface $finalHandler,
+                private readonly \Closure $processor
+            ) {}
+
+            public function handle(ServerRequestInterface $request): ResponseInterface
+            {
+                return ($this->processor)($request, $this->nextPosition, $this->finalHandler);
+            }
+        };
+
+        return $this->middlewares[$position]->process($request, $handler);
+    }
+
+    /**
+     * Validates that the given value is middleware.
+     *
+     * @param mixed $middleware The value to validate.
+     * @param int|string $position The position of the middleware in the collection.
+     * @return void
+     *
+     * @throws \InvalidArgumentException If the value does not implement MiddlewareInterface.
+     */
+    private function validateMiddleware(mixed $middleware, int|string $position): void
+    {
+        if (!$middleware instanceof MiddlewareInterface) {
+            $type = get_debug_type($middleware);
+            throw new \InvalidArgumentException(
+                "Middleware at position $position must implement " . MiddlewareInterface::class . ", $type given"
+            );
+        }
     }
 
     /**
@@ -189,10 +360,18 @@ final class Pipeline implements PipelineInterface
      * and optionally, a custom fallback handler. If no fallback handler is provided, the default
      * EmptyPipelineHandler is used.
      *
-     * @param iterable<MiddlewareInterface> $middlewares       An iterable collection of middleware objects.
+     * @param iterable<MiddlewareInterface> $middlewares An iterable collection of middleware objects.
      * @param ?RequestHandlerInterface $fallbackHandler The fallback handler to use.
      *
      * @return self Returns a fully configured Pipeline instance.
+     *
+     * @example
+     * ```php
+     * $pipeline = Pipeline::createFromIterable([
+     *     new AuthMiddleware(),
+     *     new ValidationMiddleware(),
+     * ], new ApplicationHandler());
+     * ```
      */
     public static function createFromIterable(iterable $middlewares, ?RequestHandlerInterface $fallbackHandler = null): PipelineInterface
     {
@@ -208,6 +387,11 @@ final class Pipeline implements PipelineInterface
      * @param RequestHandlerInterface $handler The new fallback handler to be used when the middleware chain is exhausted.
      *
      * @return PipelineInterface Returns the cloned pipeline instance with the updated fallback handler.
+     *
+     * @example
+     * ```php
+     * $pipeline = $pipeline->withFallbackHandler(new CustomHandler());
+     * ```
      */
     public function withFallbackHandler(RequestHandlerInterface $handler): PipelineInterface
     {
