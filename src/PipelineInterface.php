@@ -13,10 +13,46 @@ use Psr\Http\Server\RequestHandlerInterface;
  * (as a RequestHandlerInterface) and acting as an individual middleware component (as a MiddlewareInterface).
  * Additionally, it supports counting (via Countable) and iteration (via IteratorAggregate) over its middleware components.
  *
- * This interface provides methods to:
- * - Add one or more middleware using pipe().
- * - Check if a specific middleware exists in the pipeline.
- * - Determine if the pipeline has no middleware.
+ * The pipeline maintains a sequence of PSR-15 middleware and processes HTTP requests through them.
+ * This allows for flexible composition of middleware chains.
+ *
+ * Key features:
+ * - Immutability: Methods like pipe() return new instances
+ * - Composability: Pipelines can contain other pipelines
+ * - Flexibility: Can act as both a handler and middleware
+ * - PSR-15 compliant
+ *
+ * @example Creating and using a pipeline
+ * ```php
+ * $pipeline = new Pipeline([
+ *     new AuthenticationMiddleware(),
+ *     new LoggingMiddleware(),
+ *     new RateLimitMiddleware(),
+ * ], $applicationHandler);
+ *
+ * $response = $pipeline->handle($request);
+ * ```
+ *
+ * @example Pipeline composition
+ * ```php
+ * $apiPipeline = new Pipeline([
+ *     new JsonMiddleware(),
+ *     new ValidationMiddleware(),
+ * ]);
+ *
+ * $mainPipeline = new Pipeline([
+ *     new CorsMiddleware(),
+ *     $apiPipeline, // Pipeline as middleware
+ * ], $handler);
+ * ```
+ *
+ * @example Adding middleware dynamically
+ * ```php
+ * $pipeline = $basePipeline->pipe([
+ *     new CacheMiddleware(),
+ *     new CompressionMiddleware(),
+ * ]);
+ * ```
  */
 interface PipelineInterface extends MiddlewareInterface, RequestHandlerInterface, \Countable, \IteratorAggregate
 {
@@ -30,6 +66,22 @@ interface PipelineInterface extends MiddlewareInterface, RequestHandlerInterface
      * @param bool $prepend If true, adds the middleware at the beginning of the pipeline; otherwise, they are appended.
      *
      * @return PipelineInterface A new pipeline instance that includes the added middleware.
+     *
+     * @throws \InvalidArgumentException If any middleware doesn't implement MiddlewareInterface.
+     * @throws \RuntimeException If circular reference is detected.
+     *
+     * @example Appending middleware
+     * ```php
+     * $pipeline = $pipeline->pipe([
+     *     new CacheMiddleware(),
+     *     new MetricsMiddleware(),
+     * ]);
+     * ```
+     *
+     * @example Prepending middleware (execute first)
+     * ```php
+     * $pipeline = $pipeline->pipe(new SecurityHeadersMiddleware(), prepend: true);
+     * ```
      */
     public function pipe(iterable|MiddlewareInterface $middlewares, bool $prepend = false): PipelineInterface;
 
@@ -39,6 +91,13 @@ interface PipelineInterface extends MiddlewareInterface, RequestHandlerInterface
      * This method enables external code to iterate over the middleware in the pipeline (e.g., using foreach).
      *
      * @return Traversable<MiddlewareInterface> A traversable that yields each middleware in the pipeline.
+     *
+     * @example
+     * ```php
+     * foreach ($pipeline as $middleware) {
+     *     echo get_class($middleware) . "\n";
+     * }
+     * ```
      */
     public function getIterator(): Traversable;
 
@@ -50,6 +109,21 @@ interface PipelineInterface extends MiddlewareInterface, RequestHandlerInterface
      * @template T of MiddlewareInterface
      * @param MiddlewareInterface|class-string<T> $middleware The middleware instance or fully-qualified class name to search for.
      * @return bool Returns true if the middleware exists in the pipeline; false otherwise.
+     *
+     * @example Check by class name
+     * ```php
+     * if ($pipeline->has(AuthMiddleware::class)) {
+     *     // Pipeline includes authentication middleware
+     * }
+     * ```
+     *
+     * @example Check by instance
+     * ```php
+     * $cache = new CacheMiddleware();
+     * if ($pipeline->has($cache)) {
+     *     // This specific instance is in the pipeline
+     * }
+     * ```
      */
     public function has(MiddlewareInterface|string $middleware): bool;
 
@@ -60,6 +134,13 @@ interface PipelineInterface extends MiddlewareInterface, RequestHandlerInterface
      * indicating that the pipeline would immediately fall back to using the fallback handler if invoked.
      *
      * @return bool True if the pipeline is empty; false otherwise.
+     *
+     * @example
+     * ```php
+     * if ($pipeline->isEmpty()) {
+     *     // Request will go directly to the fallback handler
+     * }
+     * ```
      */
     public function isEmpty(): bool;
 }
