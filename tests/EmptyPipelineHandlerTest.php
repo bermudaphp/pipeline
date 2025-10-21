@@ -19,6 +19,7 @@ use Psr\Http\Message\ServerRequestInterface;
  * 
  * The single test case is sufficient as this class has only one
  * responsibility: throw a descriptive exception.
+ * 
  */
 final class EmptyPipelineHandlerTest extends TestCase
 {
