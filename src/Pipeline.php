@@ -81,7 +81,7 @@ final class Pipeline implements PipelineInterface
         $this->middlewares = new \SplQueue();
         
         foreach ($middlewares as $i => $middleware) {
-            $this->isMiddlewareInstance($middleware, $i);
+            $this->validateMiddleware($middleware, $i);
             $this->middlewares->enqueue($middleware);
         }
     }
@@ -304,6 +304,8 @@ final class Pipeline implements PipelineInterface
             $middlewares = [$middlewares];
         }
 
+        // Collect and validate all middleware first
+        $middlewareArray = [];
         foreach ($middlewares as $i => $middleware) {
             $this->isMiddlewareInstance($middleware, $i);
 
@@ -315,8 +317,19 @@ final class Pipeline implements PipelineInterface
                 throw new \RuntimeException('Cannot add pipeline that contains reference to this pipeline');
             }
 
-            $prepend ? $copy->middlewares->unshift($middleware) :
+            $middlewareArray[] = $middleware;
+        }
+
+        // Add middleware in correct order
+        if ($prepend) {
+            // Reverse array so unshift maintains the original order
+            foreach (array_reverse($middlewareArray) as $middleware) {
+                $copy->middlewares->unshift($middleware);
+            }
+        } else {
+            foreach ($middlewareArray as $middleware) {
                 $copy->middlewares->enqueue($middleware);
+            }
         }
 
         return $copy;
