@@ -1,4 +1,3 @@
-
 <?php
 
 namespace Bermuda\Http\Middleware;
