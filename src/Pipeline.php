@@ -81,7 +81,7 @@ final class Pipeline implements PipelineInterface
         $this->middlewares = new \SplQueue();
         
         foreach ($middlewares as $i => $middleware) {
-            $this->validateMiddleware($middleware, $i);
+            $this->isMiddlewareInstance($middleware, $i);
             $this->middlewares->enqueue($middleware);
         }
     }
@@ -434,8 +434,8 @@ final class Pipeline implements PipelineInterface
     /**
      * Validates that the given value is a middleware instance.
      *
-     * This is a private validation method used during construction to ensure
-     * type safety. It throws a descriptive exception if validation fails,
+     * This is a private validation method used during construction and in pipe()
+     * to ensure type safety. It throws a descriptive exception if validation fails,
      * including the position of the invalid middleware for easier debugging.
      *
      * @param mixed $middleware The value to validate.
@@ -446,31 +446,6 @@ final class Pipeline implements PipelineInterface
      *
      * @throws \InvalidArgumentException If the value does not implement MiddlewareInterface.
      *                                  The exception message includes the position and actual type.
-     */
-    private function validateMiddleware(mixed $middleware, int|string $position): void
-    {
-        if (!$middleware instanceof MiddlewareInterface) {
-            $type = get_debug_type($middleware);
-            throw new \InvalidArgumentException(
-                "Middleware at position $position must implement " . MiddlewareInterface::class . ", $type given"
-            );
-        }
-    }
-
-    /**
-     * Validates that the given value is a middleware instance (alias for validateMiddleware).
-     *
-     * This method performs the same validation as validateMiddleware() but is used
-     * in the pipe() method context for consistency.
-     *
-     * @param mixed $middleware The value to validate.
-     * @param int|string $position The position of the middleware in the collection.
-     *
-     * @return void
-     *
-     * @throws \InvalidArgumentException If the value does not implement MiddlewareInterface.
-     *
-     * @see validateMiddleware()
      */
     private function isMiddlewareInstance(mixed $middleware, int|string $position): void
     {
